@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "AtaccamaTransactions": {
+      "commandName": "Project",
+      "commandLineArgs": "C:\\Users\\Invictus\\Desktop\\perf_task\\output.txt"
+    }
+  }
+}
