@@ -9,53 +9,78 @@ namespace AtaccamaTransactions
 {
     class TransactionOutputSerialization
     {
+        #region GlobalVariables
+        //Global variables
         private static string[] logFileLines;
-        private static List<FrontendTransaction> frontendTransactions = new List<FrontendTransaction>();
+        private static readonly List<FrontendTransaction> frontendTransactions = new List<FrontendTransaction>();
+        #endregion
 
-        private static string transactionPrefix = "Notify: Transaction";
+        #region Constants
+        //Access variables for hardcoded values
+        private const string provideFilePathMsg = "Provide input log file path";
+        private const string fileNotFoundAtMsg = "Input file not found at";
+        private const string fileReadSuccessMsg = "Log file read successfuly";
+        private const string fileEmptyMsg = "Log file is empty";
+        private const string transactionPrefix = "Notify: Transaction";
+        private const string transactionEndFlag = "ended";
+        private const string transactionThinkTimeFlag = "Think Time";
+        private const string notFoundDefaultString = "Not Found";
         private static Tuple<string, string> requestTypeNeeded = new Tuple<string, string>("POST", "graphql");
-
-        private static string fileName = "Transactions.json";
+        private const string fileName = "Transactions.json";
+        #endregion
 
         static void Main(string[] args)
         {
             if (args.Length != 1)
             {
-                Console.WriteLine("Provide input log file path");
+                Console.WriteLine(provideFilePathMsg);
                 return;
             }
-            string inputRoot = args[0];
-            if (!File.Exists(inputRoot))
+            string logFilePath = args[0];
+            if (!File.Exists(logFilePath))
             {
-                Console.WriteLine("Input file not found at: " + inputRoot);
+                Console.WriteLine(fileNotFoundAtMsg + logFilePath);
                 return;
             }
 
-            ReadInputFile(inputRoot);
+            //Reads log output file at the provided path
+            ReadInputFile(logFilePath);
 
+            //Identifies valid transactions and defines them into object class
             CollectValidTransactions();
 
+            //Finds and adds valid steps within transactions and defines them into object class
             AttributeStepsToTransactions();
 
+            //Finds and adds valid requests within steps and defines them into object class
             AttributeRequestsToSteps();
 
+            //Takes whole object structure (transactions - steps - requests), and export to .json file at assembly folder 
             ExportTransactionsToFile();
         }
 
-        private static void ReadInputFile(string inputRoot)
+        /// <summary>
+        /// Reads imported log file, separating lines into string array
+        /// </summary>
+        /// <param name="filePath">Path to imported file</param>
+        private static void ReadInputFile(string filePath)
         {
-            logFileLines = File.ReadAllLines(inputRoot);
+            logFileLines = File.ReadAllLines(filePath);
             if (logFileLines.Length > 1 && logFileLines != null)
             {
-                Console.WriteLine("Log file read successfuly");
+                Console.WriteLine(fileReadSuccessMsg);
             }
             else
             {
-                Console.WriteLine("Log file is empty");
+                Console.WriteLine(fileEmptyMsg);
                 return;
             }
         }
 
+        #region TransactionsCollection
+        /// <summary>
+        /// Runs through log file lines, identifies starting and ending transaction lines, before filling transaction properties
+        /// </summary>
         private static void CollectValidTransactions()
         {
             if (logFileLines != null)
@@ -69,25 +94,28 @@ namespace AtaccamaTransactions
                         string transactionName = ExtractTransactionName(logFileLines[l]);
                         for (int m = startTransactionIndex; m < logFileLines.Length; m++)
                         {
-                            if (logFileLines[m].StartsWith(transactionPrefix) && logFileLines[m].Contains("ended") && logFileLines[m].Contains(transactionName))
+                            if (logFileLines[m].StartsWith(transactionPrefix) && logFileLines[m].Contains(transactionEndFlag) && logFileLines[m].Contains(transactionName))
                             {
                                 endTransactionIndex = m;
                                 break;
                             }
                         }
 
-                        if (startTransactionIndex < endTransactionIndex && ContainsRequestType(startTransactionIndex + 1, endTransactionIndex - 1))
-                        {
-                            FillTransactionBasicAttributes(startTransactionIndex, endTransactionIndex, transactionName);
-                        }
+                        FillTransactionBasicProperties(startTransactionIndex, endTransactionIndex, transactionName);
                     }
                 }
             }
         }
 
-        private static bool ContainsRequestType(int startTransactionIndex, int endTransactionIndex)
+        /// <summary>
+        /// Checks between start (included) and end (excluded) line whether there are lines containing 2 needed strings (representing request types)
+        /// </summary>
+        /// <param name="startLineIndex">Starting line in log</param>
+        /// <param name="endLineIndex">Ending line in log</param>
+        /// <returns></returns>
+        private static bool ContainsRequestType(int startLineIndex, int endLineIndex)
         {
-            for (int i = startTransactionIndex; i < endTransactionIndex; i++)
+            for (int i = startLineIndex; i < endLineIndex; i++)
             {
                 if (logFileLines[i].Contains(requestTypeNeeded.Item1) && logFileLines[i].Contains(requestTypeNeeded.Item2))
                 {
@@ -97,51 +125,39 @@ namespace AtaccamaTransactions
             return false;
         }
 
-        private static void FillTransactionBasicAttributes(int startTransactionIndex, int endTransactionIndex, string transactionName)
+        /// <summary>
+        /// Initializes transaction object class and fills its basic properties (not its child steps)
+        /// </summary>
+        /// <param name="startTransactionIndex">Position of line in log where transaction starts</param>
+        /// <param name="endTransactionIndex">Position of line in log where transaction ends</param>
+        /// <param name="transactionName">Name of the transaction</param>
+        private static void FillTransactionBasicProperties(int startTransactionIndex, int endTransactionIndex, string transactionName)
         {
-            var transactionTimeValues = ExtractTransactionTimeValues(logFileLines[endTransactionIndex]);
-            frontendTransactions.Add(
-                _ = new FrontendTransaction
-                {
-                    Name = transactionName,
-                    Duration = transactionTimeValues[0],
-                    ThinkTime = transactionTimeValues[1],
-                    WastedTime = transactionTimeValues[2],
-                    CompletionState = ExtractTransactionCompletionState(logFileLines[endTransactionIndex]),
-                    StartMessageID = ExtractTransactionMessageID(logFileLines[startTransactionIndex]),
-                    EndMessageID = ExtractTransactionMessageID(logFileLines[endTransactionIndex]),
-                    StartLineIndex = startTransactionIndex,
-                    EndLineIndex = endTransactionIndex
-                }
-            );
-        }
-
-        private static string GetMatchAtSplitByChar(string line, char ch, int position)
-        {
-            return line.Split(ch)[position].Trim();
-        }
-
-        private static string ExtractTransactionName(string line)
-        {
-            return GetMatchAtSplitByChar(line, '"', 1);
-        }
-
-        private static string ExtractTransactionMessageID(string line)
-        {
-            Regex regex = new Regex(@"[^\[]+(?=\])");
-            return regex.Match(line).Value.Split(':')[1].Trim();
-        }
-
-        private static string ExtractTransactionCompletionState(string line)
-        {
-            string passState = GetMatchAtSplitByChar(line, '"', 3);
-            if (passState != null)
+            if (startTransactionIndex < endTransactionIndex && ContainsRequestType(startTransactionIndex + 1, endTransactionIndex - 1))
             {
-                return passState;
+                var transactionTimeValues = ExtractTransactionTimeValues(logFileLines[endTransactionIndex]);
+                frontendTransactions.Add(
+                    _ = new FrontendTransaction
+                    {
+                        Name = transactionName,
+                        Duration = transactionTimeValues[0],
+                        ThinkTime = transactionTimeValues[1],
+                        WastedTime = transactionTimeValues[2],
+                        CompletionState = ExtractTransactionCompletionState(logFileLines[endTransactionIndex]),
+                        StartMessageID = ExtractTransactionMessageID(logFileLines[startTransactionIndex]),
+                        EndMessageID = ExtractTransactionMessageID(logFileLines[endTransactionIndex]),
+                        StartLineIndex = startTransactionIndex,
+                        EndLineIndex = endTransactionIndex
+                    }
+                );
             }
-            return "Not Found";
         }
 
+        /// <summary>
+        /// Finds part of line containing transaction duration, (optionally think time), and wasted time and converts them to int
+        /// </summary>
+        /// <param name="line">String with ended transaction summary</param>
+        /// <returns>Int array representing transaction time values in miliseconds</returns>
         public static int[] ExtractTransactionTimeValues(string line)
         {
             Regex regex = new Regex(@"[^\(]+(?=\))");
@@ -150,7 +166,7 @@ namespace AtaccamaTransactions
             string duration = regexMatch.Split(':')[1].Split(' ')[1].Trim();
             string thinkTime = "";
             string wastedTime = "";
-            if (line.Contains("Think Time"))
+            if (line.Contains(transactionThinkTimeFlag))
             {
                 thinkTime = regexMatch.Split(':')[2].Split(' ')[1].Trim();
                 wastedTime = regexMatch.Split(':')[3].Split(' ')[1].Trim();
@@ -168,6 +184,11 @@ namespace AtaccamaTransactions
             return timeValues;
         }
 
+        /// <summary>
+        /// Converts log file time format (in seconds, e.g. 1.2340), into int (in miliseconds)
+        /// </summary>
+        /// <param name="time">String holding number value with a single floating point</param>
+        /// <returns>Int result of multiplying input number by 1000 (miliseconds)</returns>
         private static int ConvertTransactionTimeToMs(string time)
         {
             int convertedTime = 0;
@@ -179,6 +200,44 @@ namespace AtaccamaTransactions
             return convertedTime;
         }
 
+        //Returns transaction fail or success state (or not found default) found in a string from transaction end line
+        private static string ExtractTransactionCompletionState(string line)
+        {
+            string passState = GetMatchAtSplitByChar(line, '"', 3);
+            if (passState != null)
+            {
+                return passState;
+            }
+            return notFoundDefaultString;
+        }
+
+        /// <summary>
+        /// General helper function for getting one part of string split by a char
+        /// </summary>
+        /// <param name="line">String with a line to be split</param>
+        /// <param name="ch">Char used to split the string</param>
+        /// <param name="position">Index position of substring to be returned</param>
+        /// <returns>Substring of original line, without whitespaces on sides</returns>
+        private static string GetMatchAtSplitByChar(string line, char ch, int position)
+        {
+            return line.Split(ch)[position].Trim();
+        }
+
+        //Returns transaction name found in a string from transaction start/end line
+        private static string ExtractTransactionName(string line)
+        {
+            return GetMatchAtSplitByChar(line, '"', 1);
+        }
+
+        //Returns transaction message ID found in a string from transaction start/end line
+        private static string ExtractTransactionMessageID(string line)
+        {
+            Regex regex = new Regex(@"[^\[]+(?=\])");
+            return regex.Match(line).Value.Split(':')[1].Trim();
+        }
+        #endregion
+
+        #region StepsCollection
         private static void AttributeStepsToTransactions()
         {
             if (frontendTransactions != null)
@@ -193,7 +252,7 @@ namespace AtaccamaTransactions
                             string stepIdIndex = ExtractStepIdIndex(logFileLines[l]);
                             int startStepTime = TimeInMsFromLineTimeStamp(logFileLines[l]);
                             int endStepTime = startStepTime;
-                            string completionState = "Not Found";
+                            string completionState = notFoundDefaultString;
                             int startLineIndex = l;
                             int endLineIndex = l;
                             for (int m = l + 1; m < transaction.EndLineIndex; m++)
@@ -252,7 +311,9 @@ namespace AtaccamaTransactions
             }
             return "Fail";
         }
+        #endregion
 
+        #region RequestsCollection
         private static void AttributeRequestsToSteps()
         {
             if (frontendTransactions != null)
@@ -396,6 +457,7 @@ namespace AtaccamaTransactions
             return GetMatchAtSplitByChar(line, '"', 3);
         }
 
+        //Gets content-length value by parsing string from header line to int
         private static int ExtractContentLength(string line)
         {
             if (line == null)
@@ -404,7 +466,9 @@ namespace AtaccamaTransactions
             }
             return int.Parse(GetMatchAtSplitByChar(line, ':', 1));
         }
+        #endregion
 
+        #region FileExport
         /// <summary>
         /// Transactions records are serialized into json format and written into a .json file
         /// </summary>
@@ -432,5 +496,6 @@ namespace AtaccamaTransactions
             var json = JsonSerializer.Serialize(frontendTransactions, options);
             return json;
         }
+        #endregion
     }
 }
