@@ -15,7 +15,7 @@ namespace AtaccamaTransactions
 		public string StartMessageID { get; set; }
 		public string EndMessageID { get; set; }
 
-		//Start and end positions of transaction record in log file
+		//Start and end positions of transaction record in log file, just for internal use
 		[JsonIgnore]
 		public int StartLineIndex { get; set; }
 		[JsonIgnore]
